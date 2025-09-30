@@ -53,7 +53,7 @@
 | Компонент | Технология |
 |---|---|
 | **Backend** | Kotlin, Ktor, Gradle |
-| **Frontend** | TypeScript, Next.js, Tailwind CSS |
+| **Frontend** | TypeScript, Next.js, Tailwind CSS, AnimeJS |
 | **База данных** | PostgreSQL |
 | **Контейнеризация** | Docker, Docker Compose |
 

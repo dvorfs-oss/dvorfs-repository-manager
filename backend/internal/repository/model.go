@@ -14,10 +14,12 @@ type Repository struct {
 	Type            string         `gorm:"type:varchar(50)"`
 	Attributes      datatypes.JSON `gorm:"type:jsonb"`
 	CleanupPolicyID *uuid.UUID     `gorm:"type:uuid"`
+	BlobStoreID     *uuid.UUID     `gorm:"type:uuid"`
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 	Artifacts       []Artifact
 	CleanupPolicy   *CleanupPolicy
+	BlobStore       *BlobStore `gorm:"foreignKey:BlobStoreID"`
 }
 
 type Artifact struct {
@@ -37,4 +39,14 @@ type CleanupPolicy struct {
 	Criteria  datatypes.JSON `gorm:"type:jsonb"`
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+type BlobStore struct {
+	ID           uuid.UUID      `gorm:"type:uuid;primary_key;"`
+	Name         string         `gorm:"type:varchar(255);unique_index"`
+	Type         string         `gorm:"type:varchar(50)"`
+	Attributes   datatypes.JSON `gorm:"type:jsonb"`
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	Repositories []Repository `gorm:"foreignKey:BlobStoreID"`
 }

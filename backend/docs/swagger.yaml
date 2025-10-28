@@ -1,0 +1,727 @@
+basePath: /api/v1
+definitions:
+  dvorfs-repository-manager_internal_repository.CleanupPolicy:
+    properties:
+      createdAt:
+        type: string
+      criteria:
+        items:
+          type: integer
+        type: array
+      id:
+        type: string
+      name:
+        type: string
+      updatedAt:
+        type: string
+    type: object
+  dvorfs-repository-manager_internal_user.Role:
+    properties:
+      createdAt:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      privileges:
+        items:
+          type: integer
+        type: array
+    type: object
+  dvorfs-repository-manager_internal_user.User:
+    properties:
+      createdAt:
+        type: string
+      email:
+        type: string
+      id:
+        type: string
+      passwordHash:
+        type: string
+      roles:
+        items:
+          $ref: '#/definitions/dvorfs-repository-manager_internal_user.Role'
+        type: array
+      updatedAt:
+        type: string
+      username:
+        type: string
+    type: object
+  internal_auth.LoginRequest:
+    properties:
+      password:
+        type: string
+      username:
+        type: string
+    type: object
+  internal_repository.Artifact:
+    properties:
+      checksums:
+        items:
+          type: integer
+        type: array
+      contentType:
+        type: string
+      createdAt:
+        type: string
+      id:
+        type: string
+      lastDownloadedAt:
+        type: string
+      path:
+        type: string
+      repositoryID:
+        type: string
+      size:
+        type: integer
+    type: object
+  internal_repository.BlobStore:
+    properties:
+      attributes:
+        items:
+          type: integer
+        type: array
+      createdAt:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      repositories:
+        items:
+          $ref: '#/definitions/internal_repository.Repository'
+        type: array
+      type:
+        type: string
+      updatedAt:
+        type: string
+    type: object
+  internal_repository.CleanupPolicy:
+    properties:
+      createdAt:
+        type: string
+      criteria:
+        items:
+          type: integer
+        type: array
+      id:
+        type: string
+      name:
+        type: string
+      updatedAt:
+        type: string
+    type: object
+  internal_repository.Repository:
+    properties:
+      artifacts:
+        items:
+          $ref: '#/definitions/internal_repository.Artifact'
+        type: array
+      attributes:
+        items:
+          type: integer
+        type: array
+      blobStore:
+        $ref: '#/definitions/internal_repository.BlobStore'
+      blobStoreID:
+        type: string
+      cleanupPolicy:
+        $ref: '#/definitions/internal_repository.CleanupPolicy'
+      cleanupPolicyID:
+        type: string
+      createdAt:
+        type: string
+      format:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      type:
+        type: string
+      updatedAt:
+        type: string
+    type: object
+  internal_user.Role:
+    properties:
+      createdAt:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      privileges:
+        items:
+          type: integer
+        type: array
+    type: object
+  internal_user.User:
+    properties:
+      createdAt:
+        type: string
+      email:
+        type: string
+      id:
+        type: string
+      passwordHash:
+        type: string
+      roles:
+        items:
+          $ref: '#/definitions/internal_user.Role'
+        type: array
+      updatedAt:
+        type: string
+      username:
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact:
+    email: support@dvorfs.com
+    name: API Support
+    url: http://www.dvorfs.com/support
+  description: This is the API for the Dvorfs Repository Manager.
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+  title: Dvorfs Repository Manager API
+  version: "1.0"
+paths:
+  /auth/login:
+    post:
+      consumes:
+      - application/json
+      description: Login a user with username and password
+      parameters:
+      - description: Credentials
+        in: body
+        name: credentials
+        required: true
+        schema:
+          $ref: '#/definitions/internal_auth.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Login a user
+      tags:
+      - auth
+  /auth/logout:
+    post:
+      description: Logout a user
+      responses:
+        "200":
+          description: OK
+      summary: Logout a user
+      tags:
+      - auth
+  /auth/me:
+    get:
+      description: Get the current authenticated user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/dvorfs-repository-manager_internal_user.User'
+      summary: Get current user
+      tags:
+      - auth
+  /blob-stores:
+    get:
+      description: Get all BlobStores.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_repository.BlobStore'
+            type: array
+      summary: Get all BlobStores
+      tags:
+      - BlobStore
+    post:
+      consumes:
+      - application/json
+      description: Create a new BlobStore.
+      parameters:
+      - description: BlobStore object
+        in: body
+        name: blobStore
+        required: true
+        schema:
+          $ref: '#/definitions/internal_repository.BlobStore'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_repository.BlobStore'
+      summary: Create a new BlobStore
+      tags:
+      - BlobStore
+  /blob-stores/{id}:
+    delete:
+      description: Delete a BlobStore.
+      parameters:
+      - description: BlobStore ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      summary: Delete a BlobStore
+      tags:
+      - BlobStore
+    get:
+      description: Get a BlobStore by ID.
+      parameters:
+      - description: BlobStore ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_repository.BlobStore'
+      summary: Get a BlobStore by ID
+      tags:
+      - BlobStore
+    put:
+      consumes:
+      - application/json
+      description: Update a BlobStore.
+      parameters:
+      - description: BlobStore ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: BlobStore object
+        in: body
+        name: blobStore
+        required: true
+        schema:
+          $ref: '#/definitions/internal_repository.BlobStore'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_repository.BlobStore'
+      summary: Update a BlobStore
+      tags:
+      - BlobStore
+  /cleanup-policies:
+    get:
+      description: Get a list of all cleanup policies
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/dvorfs-repository-manager_internal_repository.CleanupPolicy'
+            type: array
+      summary: Get all cleanup policies
+      tags:
+      - cleanup
+    post:
+      consumes:
+      - application/json
+      description: Create a new cleanup policy
+      parameters:
+      - description: Cleanup Policy
+        in: body
+        name: policy
+        required: true
+        schema:
+          $ref: '#/definitions/dvorfs-repository-manager_internal_repository.CleanupPolicy'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+      summary: Create a new cleanup policy
+      tags:
+      - cleanup
+  /cleanup-policies/{policyId}:
+    delete:
+      description: Delete a cleanup policy by ID
+      parameters:
+      - description: Policy ID
+        in: path
+        name: policyId
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+      summary: Delete a cleanup policy
+      tags:
+      - cleanup
+    put:
+      consumes:
+      - application/json
+      description: Update a cleanup policy by ID
+      parameters:
+      - description: Policy ID
+        in: path
+        name: policyId
+        required: true
+        type: string
+      - description: Cleanup Policy
+        in: body
+        name: policy
+        required: true
+        schema:
+          $ref: '#/definitions/dvorfs-repository-manager_internal_repository.CleanupPolicy'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+      summary: Update a cleanup policy
+      tags:
+      - cleanup
+  /repositories:
+    get:
+      description: Get a list of all repositories
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_repository.Repository'
+            type: array
+      summary: Get all repositories
+      tags:
+      - repositories
+    post:
+      consumes:
+      - application/json
+      description: Create a new repository
+      parameters:
+      - description: Repository
+        in: body
+        name: repository
+        required: true
+        schema:
+          $ref: '#/definitions/internal_repository.Repository'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+      summary: Create a new repository
+      tags:
+      - repositories
+  /repositories/{name}:
+    delete:
+      description: Delete a repository by name
+      parameters:
+      - description: Repository name
+        in: path
+        name: name
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+      summary: Delete a repository
+      tags:
+      - repositories
+    get:
+      description: Get a repository by name
+      parameters:
+      - description: Repository name
+        in: path
+        name: name
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_repository.Repository'
+      summary: Get a repository
+      tags:
+      - repositories
+    put:
+      consumes:
+      - application/json
+      description: Update a repository by name
+      parameters:
+      - description: Repository name
+        in: path
+        name: name
+        required: true
+        type: string
+      - description: Repository
+        in: body
+        name: repository
+        required: true
+        schema:
+          $ref: '#/definitions/internal_repository.Repository'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+      summary: Update a repository
+      tags:
+      - repositories
+  /repository/{repository-name}/{path}:
+    get:
+      description: Upload or download an artifact
+      parameters:
+      - description: Repository name
+        in: path
+        name: repository-name
+        required: true
+        type: string
+      - description: Artifact path
+        in: path
+        name: path
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+      summary: Handle artifact
+      tags:
+      - artifacts
+    put:
+      description: Upload or download an artifact
+      parameters:
+      - description: Repository name
+        in: path
+        name: repository-name
+        required: true
+        type: string
+      - description: Artifact path
+        in: path
+        name: path
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+      summary: Handle artifact
+      tags:
+      - artifacts
+  /search/artifacts:
+    get:
+      description: Search for artifacts
+      parameters:
+      - description: Search query
+        in: query
+        name: q
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_repository.Artifact'
+            type: array
+      summary: Search artifacts
+      tags:
+      - search
+  /security/roles:
+    get:
+      description: Get a list of all roles
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_user.Role'
+            type: array
+      summary: Get all roles
+      tags:
+      - security
+    post:
+      consumes:
+      - application/json
+      description: Create a new role
+      parameters:
+      - description: Role
+        in: body
+        name: role
+        required: true
+        schema:
+          $ref: '#/definitions/internal_user.Role'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+      summary: Create a new role
+      tags:
+      - security
+  /security/roles/{roleId}:
+    delete:
+      description: Delete a role by ID
+      parameters:
+      - description: Role ID
+        in: path
+        name: roleId
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+      summary: Delete a role
+      tags:
+      - security
+    put:
+      consumes:
+      - application/json
+      description: Update a role by ID
+      parameters:
+      - description: Role ID
+        in: path
+        name: roleId
+        required: true
+        type: string
+      - description: Role
+        in: body
+        name: role
+        required: true
+        schema:
+          $ref: '#/definitions/internal_user.Role'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+      summary: Update a role
+      tags:
+      - security
+  /security/users:
+    get:
+      description: Get a list of all users
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_user.User'
+            type: array
+      summary: Get all users
+      tags:
+      - security
+    post:
+      consumes:
+      - application/json
+      description: Create a new user
+      parameters:
+      - description: User
+        in: body
+        name: user
+        required: true
+        schema:
+          $ref: '#/definitions/internal_user.User'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+      summary: Create a new user
+      tags:
+      - security
+  /security/users/{username}:
+    delete:
+      description: Delete a user by username
+      parameters:
+      - description: Username
+        in: path
+        name: username
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+      summary: Delete a user
+      tags:
+      - security
+    put:
+      consumes:
+      - application/json
+      description: Update a user by username
+      parameters:
+      - description: Username
+        in: path
+        name: username
+        required: true
+        type: string
+      - description: User
+        in: body
+        name: user
+        required: true
+        schema:
+          $ref: '#/definitions/internal_user.User'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+      summary: Update a user
+      tags:
+      - security
+  /security/users/{username}/password:
+    put:
+      consumes:
+      - application/json
+      description: Change a user's password
+      parameters:
+      - description: Username
+        in: path
+        name: username
+        required: true
+        type: string
+      - description: Password
+        in: body
+        name: password
+        required: true
+        schema:
+          additionalProperties:
+            type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+      summary: Change user password
+      tags:
+      - security
+swagger: "2.0"

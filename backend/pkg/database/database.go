@@ -33,6 +33,6 @@ func Connect() {
 }
 
 func Migrate() {
-	DB.AutoMigrate(&user.User{}, &user.Role{}, &repository.Repository{}, &repository.Artifact{}, &repository.CleanupPolicy{})
+	DB.AutoMigrate(&user.User{}, &user.Role{}, &repository.Repository{}, &repository.Artifact{}, &repository.CleanupPolicy{}, &repository.BlobStore{})
 	log.Println("Database migration completed")
 }

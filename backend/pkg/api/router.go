@@ -6,6 +6,7 @@ import (
 	"dvorfs-repository-manager/internal/repository"
 	"dvorfs-repository-manager/internal/user"
 	"github.com/gorilla/mux"
+	httpSwagger "github.com/swaggo/http-swagger"
 )
 
 func NewRouter(
@@ -13,6 +14,7 @@ func NewRouter(
 	repoHandler *repository.Handler,
 	userHandler *user.Handler,
 	cleanupHandler *cleanup.Handler,
+	blobHandler *repository.BlobHandler,
 ) *mux.Router {
 	router := mux.NewRouter().StrictSlash(true)
 
@@ -56,6 +58,17 @@ func NewRouter(
 	cleanupRouter.HandleFunc("/", cleanupHandler.CreateCleanupPolicy).Methods("POST")
 	cleanupRouter.HandleFunc("/{policyId}", cleanupHandler.UpdateCleanupPolicy).Methods("PUT")
 	cleanupRouter.HandleFunc("/{policyId}", cleanupHandler.DeleteCleanupPolicy).Methods("DELETE")
+
+	// Blob Stores
+	blobStoreRouter := router.PathPrefix("/api/v1/blob-stores").Subrouter()
+	blobStoreRouter.HandleFunc("/", blobHandler.GetBlobStores).Methods("GET")
+	blobStoreRouter.HandleFunc("/", blobHandler.CreateBlobStore).Methods("POST")
+	blobStoreRouter.HandleFunc("/{id}", blobHandler.GetBlobStore).Methods("GET")
+	blobStoreRouter.HandleFunc("/{id}", blobHandler.UpdateBlobStore).Methods("PUT")
+	blobStoreRouter.HandleFunc("/{id}", blobHandler.DeleteBlobStore).Methods("DELETE")
+
+	// Swagger
+	router.PathPrefix("/swagger/").Handler(httpSwagger.WrapHandler)
 
 	return router
 }

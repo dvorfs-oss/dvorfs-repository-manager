@@ -2,7 +2,12 @@ package user
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strings"
+
+	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 )
 
 type Handler struct {
@@ -25,6 +30,7 @@ func (h *Handler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(users)
 }
 
@@ -37,7 +43,19 @@ func (h *Handler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 // @Success 201
 // @Router /security/users [post]
 func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
-	// Implementation needed
+	var req User
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid user payload", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.Username) == "" {
+		http.Error(w, "username is required", http.StatusBadRequest)
+		return
+	}
+	if err := h.service.CreateUser(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	w.WriteHeader(http.StatusCreated)
 }
 
@@ -51,7 +69,21 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 // @Success 200
 // @Router /security/users/{username} [put]
 func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
-	// Implementation needed
+	username := mux.Vars(r)["username"]
+	var req User
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid user payload", http.StatusBadRequest)
+		return
+	}
+	req.Username = username
+	if err := h.service.UpdateUser(&req); err != nil {
+		if errors.Is(err, ErrUserNotFound) {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -65,7 +97,25 @@ func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 // @Success 200
 // @Router /security/users/{username}/password [put]
 func (h *Handler) ChangeUserPassword(w http.ResponseWriter, r *http.Request) {
-	// Implementation needed
+	username := mux.Vars(r)["username"]
+	var req map[string]string
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid password payload", http.StatusBadRequest)
+		return
+	}
+	newPassword := req["password"]
+	if strings.TrimSpace(newPassword) == "" {
+		http.Error(w, "password is required", http.StatusBadRequest)
+		return
+	}
+	if err := h.service.ChangeUserPassword(username, newPassword); err != nil {
+		if errors.Is(err, ErrUserNotFound) {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -76,7 +126,15 @@ func (h *Handler) ChangeUserPassword(w http.ResponseWriter, r *http.Request) {
 // @Success 200
 // @Router /security/users/{username} [delete]
 func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
-	// Implementation needed
+	username := mux.Vars(r)["username"]
+	if err := h.service.DeleteUser(username); err != nil {
+		if errors.Is(err, ErrUserNotFound) {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -92,6 +150,7 @@ func (h *Handler) GetAllRoles(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(roles)
 }
 
@@ -104,8 +163,21 @@ func (h *Handler) GetAllRoles(w http.ResponseWriter, r *http.Request) {
 // @Success 201
 // @Router /security/roles [post]
 func (h *Handler) CreateRole(w http.ResponseWriter, r *http.Request) {
-	// Implementation needed
+	var req Role
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid role payload", http.StatusBadRequest)
+		return
+	}
+	if req.ID == uuid.Nil {
+		req.ID = uuid.New()
+	}
+	if err := h.service.CreateRole(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(req)
 }
 
 // @Summary Update a role
@@ -118,7 +190,26 @@ func (h *Handler) CreateRole(w http.ResponseWriter, r *http.Request) {
 // @Success 200
 // @Router /security/roles/{roleId} [put]
 func (h *Handler) UpdateRole(w http.ResponseWriter, r *http.Request) {
-	// Implementation needed
+	roleID := mux.Vars(r)["roleId"]
+	parsedRoleID, err := uuid.Parse(roleID)
+	if err != nil {
+		http.Error(w, "invalid role id", http.StatusBadRequest)
+		return
+	}
+	var req Role
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid role payload", http.StatusBadRequest)
+		return
+	}
+	req.ID = parsedRoleID
+	if err := h.service.UpdateRole(&req); err != nil {
+		if errors.Is(err, ErrRoleNotFound) {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -129,6 +220,14 @@ func (h *Handler) UpdateRole(w http.ResponseWriter, r *http.Request) {
 // @Success 200
 // @Router /security/roles/{roleId} [delete]
 func (h *Handler) DeleteRole(w http.ResponseWriter, r *http.Request) {
-	// Implementation needed
+	roleID := mux.Vars(r)["roleId"]
+	if err := h.service.DeleteRole(roleID); err != nil {
+		if errors.Is(err, ErrRoleNotFound) {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	w.WriteHeader(http.StatusOK)
 }

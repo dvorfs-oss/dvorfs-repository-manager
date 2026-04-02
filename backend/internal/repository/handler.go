@@ -2,7 +2,11 @@ package repository
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strings"
+
+	"github.com/gorilla/mux"
 )
 
 type Handler struct {
@@ -25,6 +29,7 @@ func (h *Handler) GetAllRepositories(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(repos)
 }
 
@@ -37,8 +42,26 @@ func (h *Handler) GetAllRepositories(w http.ResponseWriter, r *http.Request) {
 // @Success 201
 // @Router /repositories [post]
 func (h *Handler) CreateRepository(w http.ResponseWriter, r *http.Request) {
-	// Implementation needed
+	var repo Repository
+	if err := json.NewDecoder(r.Body).Decode(&repo); err != nil {
+		http.Error(w, "invalid repository payload", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(repo.Name) == "" {
+		http.Error(w, "repository name is required", http.StatusBadRequest)
+		return
+	}
+	if err := h.service.CreateRepository(&repo); err != nil {
+		if errors.Is(err, ErrRepositoryExists) {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(repo)
 }
 
 // @Summary Get a repository
@@ -49,12 +72,17 @@ func (h *Handler) CreateRepository(w http.ResponseWriter, r *http.Request) {
 // @Success 200 {object} Repository
 // @Router /repositories/{name} [get]
 func (h *Handler) GetRepository(w http.ResponseWriter, r *http.Request) {
-	// Implementation needed
-	repo, err := h.service.GetRepository("test")
+	name := mux.Vars(r)["name"]
+	repo, err := h.service.GetRepository(name)
 	if err != nil {
+		if errors.Is(err, ErrRepositoryNotFound) {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(repo)
 }
 
@@ -68,7 +96,21 @@ func (h *Handler) GetRepository(w http.ResponseWriter, r *http.Request) {
 // @Success 200
 // @Router /repositories/{name} [put]
 func (h *Handler) UpdateRepository(w http.ResponseWriter, r *http.Request) {
-	// Implementation needed
+	name := mux.Vars(r)["name"]
+	var repo Repository
+	if err := json.NewDecoder(r.Body).Decode(&repo); err != nil {
+		http.Error(w, "invalid repository payload", http.StatusBadRequest)
+		return
+	}
+	repo.Name = name
+	if err := h.service.UpdateRepository(&repo); err != nil {
+		if errors.Is(err, ErrRepositoryNotFound) {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -79,7 +121,15 @@ func (h *Handler) UpdateRepository(w http.ResponseWriter, r *http.Request) {
 // @Success 200
 // @Router /repositories/{name} [delete]
 func (h *Handler) DeleteRepository(w http.ResponseWriter, r *http.Request) {
-	// Implementation needed
+	name := mux.Vars(r)["name"]
+	if err := h.service.DeleteRepository(name); err != nil {
+		if errors.Is(err, ErrRepositoryNotFound) {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -92,8 +142,22 @@ func (h *Handler) DeleteRepository(w http.ResponseWriter, r *http.Request) {
 // @Router /repository/{repository-name}/{path} [put]
 // @Router /repository/{repository-name}/{path} [get]
 func (h *Handler) HandleArtifact(w http.ResponseWriter, r *http.Request) {
-	// Implementation needed
-	w.WriteHeader(http.StatusOK)
+	vars := mux.Vars(r)
+	repoName := vars["repository-name"]
+	pathPrefix := "/repository/" + repoName + "/"
+	artifactPath := strings.TrimPrefix(r.URL.Path, pathPrefix)
+	if err := h.service.HandleArtifact(repoName, artifactPath); err != nil {
+		switch {
+		case errors.Is(err, ErrRepositoryNotFound):
+			http.Error(w, err.Error(), http.StatusNotFound)
+		case errors.Is(err, ErrArtifactPathEmpty):
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		default:
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
 }
 
 // @Summary Search artifacts
@@ -104,11 +168,11 @@ func (h *Handler) HandleArtifact(w http.ResponseWriter, r *http.Request) {
 // @Success 200 {array} Artifact
 // @Router /search/artifacts [get]
 func (h *Handler) SearchArtifacts(w http.ResponseWriter, r *http.Request) {
-	// Implementation needed
-	artifacts, err := h.service.SearchArtifacts("test")
+	artifacts, err := h.service.SearchArtifacts(r.URL.Query().Get("q"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(artifacts)
 }

@@ -1,7 +1,9 @@
 package auth
 
 import (
+	"bytes"
 	"dvorfs-repository-manager/internal/user"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -33,9 +35,10 @@ func TestLogin(t *testing.T) {
 	mockService := new(MockService)
 	handler := NewHandler(mockService)
 
-	mockService.On("Login", "test", "test").Return("test-token", nil)
+	payload, _ := json.Marshal(LoginRequest{Username: "admin", Password: "admin"})
+	mockService.On("Login", "admin", "admin").Return("test-token", nil)
 
-	req, err := http.NewRequest("POST", "/api/v1/auth/login", nil)
+	req, err := http.NewRequest("POST", "/api/v1/auth/login", bytes.NewBuffer(payload))
 	assert.NoError(t, err)
 
 	rr := httptest.NewRecorder()

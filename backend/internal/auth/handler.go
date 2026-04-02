@@ -2,7 +2,9 @@ package auth
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strings"
 
 	_ "dvorfs-repository-manager/internal/user"
 )
@@ -24,12 +26,21 @@ func NewHandler(service Service) *Handler {
 // @Success 200 {object} map[string]string
 // @Router /auth/login [post]
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
-	// For now, we'll just call the service
-	token, err := h.service.Login("test", "test")
+	var req LoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid credentials payload", http.StatusBadRequest)
+		return
+	}
+	token, err := h.service.Login(req.Username, req.Password)
 	if err != nil {
+		if errors.Is(err, ErrInvalidCredentials) {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"token": token})
 }
 
@@ -39,8 +50,13 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 // @Success 200
 // @Router /auth/logout [post]
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
-	err := h.service.Logout("test")
+	token := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+	err := h.service.Logout(token)
 	if err != nil {
+		if errors.Is(err, ErrInvalidToken) {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -54,11 +70,17 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 // @Success 200 {object} user.User
 // @Router /auth/me [get]
 func (h *Handler) GetMe(w http.ResponseWriter, r *http.Request) {
-	user, err := h.service.GetMe("test")
+	token := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+	user, err := h.service.GetMe(token)
 	if err != nil {
+		if errors.Is(err, ErrInvalidToken) {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(user)
 }
 

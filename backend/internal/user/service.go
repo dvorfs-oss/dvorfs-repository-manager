@@ -30,6 +30,11 @@ func NewService(db *gorm.DB) Service {
 	return &service{db: db}
 }
 
+var (
+	ErrUserNotFound = errors.New("user not found")
+	ErrRoleNotFound = errors.New("role not found")
+)
+
 func (s *service) GetAllUsers() ([]User, error) {
 	var users []User
 	err := s.db.Preload("Roles").Order("username asc").Find(&users).Error

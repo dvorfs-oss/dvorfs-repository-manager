@@ -2,6 +2,7 @@ package auth
 
 import (
 	"net/http"
+	"strings"
 
 	"dvorfs-repository-manager/internal/user"
 	"dvorfs-repository-manager/pkg/httpx"

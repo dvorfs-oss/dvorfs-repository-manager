@@ -42,6 +42,19 @@ func Connect() {
 func Migrate() {
 	DB.AutoMigrate(&user.User{}, &user.Role{}, &repository.Repository{}, &repository.Artifact{}, &repository.CleanupPolicy{}, &repository.BlobStore{})
 	log.Println("Database migration completed")
+
+	var admin user.User
+	if err := DB.Where("username = ?", "admin").First(&admin).Error; err != nil {
+		if err := DB.Create(&user.User{
+			Username:     "admin",
+			PasswordHash: "admin",
+			Email:        "admin@local",
+		}).Error; err != nil {
+			log.Println("Failed to seed default admin user:", err)
+		} else {
+			log.Println("Seeded default admin user")
+		}
+	}
 }
 
 func connectPostgres() (*gorm.DB, error) {

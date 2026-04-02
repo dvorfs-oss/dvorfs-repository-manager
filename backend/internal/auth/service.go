@@ -42,6 +42,11 @@ func NewService(db *gorm.DB) Service {
 	return svc
 }
 
+var (
+	ErrInvalidCredentials = errors.New("invalid credentials")
+	ErrInvalidToken       = errors.New("invalid token")
+)
+
 func (s *service) Login(username, password string) (string, error) {
 	var account user.User
 	if err := s.db.Preload("Roles").First(&account, "username = ?", strings.TrimSpace(username)).Error; err != nil {

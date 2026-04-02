@@ -24,6 +24,8 @@ func NewService(db *gorm.DB) Service {
 	return &service{db: db}
 }
 
+var ErrCleanupPolicyNotFound = errors.New("cleanup policy not found")
+
 func (s *service) GetAllCleanupPolicies() ([]repository.CleanupPolicy, error) {
 	var policies []repository.CleanupPolicy
 	err := s.db.Order("name asc").Find(&policies).Error

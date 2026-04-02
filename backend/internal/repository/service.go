@@ -42,6 +42,12 @@ func NewService(db *gorm.DB) Service {
 	}
 }
 
+var (
+	ErrRepositoryNotFound = errors.New("repository not found")
+	ErrRepositoryExists   = errors.New("repository already exists")
+	ErrArtifactPathEmpty  = errors.New("artifact path is required")
+)
+
 func (s *service) GetAllRepositories() ([]Repository, error) {
 	var repos []Repository
 	if err := s.db.Order("created_at DESC").Find(&repos).Error; err != nil {

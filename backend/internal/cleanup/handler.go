@@ -1,10 +1,12 @@
 package cleanup
 
 import (
-	"encoding/json"
 	"net/http"
 
-	_ "dvorfs-repository-manager/internal/repository"
+	"dvorfs-repository-manager/internal/repository"
+	"dvorfs-repository-manager/pkg/httpx"
+	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 )
 
 type Handler struct {
@@ -24,10 +26,10 @@ func NewHandler(service Service) *Handler {
 func (h *Handler) GetAllCleanupPolicies(w http.ResponseWriter, r *http.Request) {
 	policies, err := h.service.GetAllCleanupPolicies()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	json.NewEncoder(w).Encode(policies)
+	httpx.WriteJSON(w, http.StatusOK, policies)
 }
 
 // @Summary Create a new cleanup policy
@@ -39,8 +41,16 @@ func (h *Handler) GetAllCleanupPolicies(w http.ResponseWriter, r *http.Request) 
 // @Success 201
 // @Router /cleanup-policies [post]
 func (h *Handler) CreateCleanupPolicy(w http.ResponseWriter, r *http.Request) {
-	// Implementation needed
-	w.WriteHeader(http.StatusCreated)
+	var policy repository.CleanupPolicy
+	if err := httpx.DecodeJSON(r, &policy); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := h.service.CreateCleanupPolicy(&policy); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	httpx.WriteJSON(w, http.StatusCreated, policy)
 }
 
 // @Summary Update a cleanup policy
@@ -53,8 +63,24 @@ func (h *Handler) CreateCleanupPolicy(w http.ResponseWriter, r *http.Request) {
 // @Success 200
 // @Router /cleanup-policies/{policyId} [put]
 func (h *Handler) UpdateCleanupPolicy(w http.ResponseWriter, r *http.Request) {
-	// Implementation needed
-	w.WriteHeader(http.StatusOK)
+	var policy repository.CleanupPolicy
+	if err := httpx.DecodeJSON(r, &policy); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	policyID, err := uuid.Parse(mux.Vars(r)["policyId"])
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid policy id")
+		return
+	}
+
+	policy.ID = policyID
+	if err := h.service.UpdateCleanupPolicy(&policy); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, policy)
 }
 
 // @Summary Delete a cleanup policy
@@ -64,6 +90,9 @@ func (h *Handler) UpdateCleanupPolicy(w http.ResponseWriter, r *http.Request) {
 // @Success 200
 // @Router /cleanup-policies/{policyId} [delete]
 func (h *Handler) DeleteCleanupPolicy(w http.ResponseWriter, r *http.Request) {
-	// Implementation needed
-	w.WriteHeader(http.StatusOK)
+	if err := h.service.DeleteCleanupPolicy(mux.Vars(r)["policyId"]); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }

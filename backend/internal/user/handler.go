@@ -1,8 +1,12 @@
 package user
 
 import (
-	"encoding/json"
 	"net/http"
+
+	"dvorfs-repository-manager/pkg/httpx"
+	"github.com/google/uuid"
+	"github.com/gorilla/mux"
+	"gorm.io/datatypes"
 )
 
 type Handler struct {
@@ -22,10 +26,10 @@ func NewHandler(service Service) *Handler {
 func (h *Handler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 	users, err := h.service.GetAllUsers()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	json.NewEncoder(w).Encode(users)
+	httpx.WriteJSON(w, http.StatusOK, SanitizeUsers(users))
 }
 
 // @Summary Create a new user
@@ -37,8 +41,24 @@ func (h *Handler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 // @Success 201
 // @Router /security/users [post]
 func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
-	// Implementation needed
-	w.WriteHeader(http.StatusCreated)
+	var request createUserRequest
+	if err := httpx.DecodeJSON(r, &request); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	newUser := &User{
+		Username:     request.Username,
+		Email:        request.Email,
+		PasswordHash: request.Password,
+		Roles:        request.toRoles(),
+	}
+	if err := h.service.CreateUser(newUser); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusCreated, SanitizeUser(*newUser))
 }
 
 // @Summary Update a user
@@ -51,8 +71,32 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 // @Success 200
 // @Router /security/users/{username} [put]
 func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
-	// Implementation needed
-	w.WriteHeader(http.StatusOK)
+	var request updateUserRequest
+	if err := httpx.DecodeJSON(r, &request); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	model := &User{
+		Username: mux.Vars(r)["username"],
+		Email:    request.Email,
+	}
+	if request.RoleIDs != nil {
+		model.Roles = request.toRoles()
+	}
+
+	if err := h.service.UpdateUser(model); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	updated, err := h.service.GetByUsername(model.Username)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, SanitizeUser(*updated))
 }
 
 // @Summary Change user password
@@ -65,8 +109,18 @@ func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 // @Success 200
 // @Router /security/users/{username}/password [put]
 func (h *Handler) ChangeUserPassword(w http.ResponseWriter, r *http.Request) {
-	// Implementation needed
-	w.WriteHeader(http.StatusOK)
+	var request changePasswordRequest
+	if err := httpx.DecodeJSON(r, &request); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if err := h.service.ChangeUserPassword(mux.Vars(r)["username"], request.Password); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "password updated"})
 }
 
 // @Summary Delete a user
@@ -76,8 +130,11 @@ func (h *Handler) ChangeUserPassword(w http.ResponseWriter, r *http.Request) {
 // @Success 200
 // @Router /security/users/{username} [delete]
 func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
-	// Implementation needed
-	w.WriteHeader(http.StatusOK)
+	if err := h.service.DeleteUser(mux.Vars(r)["username"]); err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
 // @Summary Get all roles
@@ -89,10 +146,10 @@ func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetAllRoles(w http.ResponseWriter, r *http.Request) {
 	roles, err := h.service.GetAllRoles()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	json.NewEncoder(w).Encode(roles)
+	httpx.WriteJSON(w, http.StatusOK, SanitizeRoles(roles))
 }
 
 // @Summary Create a new role
@@ -104,8 +161,22 @@ func (h *Handler) GetAllRoles(w http.ResponseWriter, r *http.Request) {
 // @Success 201
 // @Router /security/roles [post]
 func (h *Handler) CreateRole(w http.ResponseWriter, r *http.Request) {
-	// Implementation needed
-	w.WriteHeader(http.StatusCreated)
+	var request roleRequest
+	if err := httpx.DecodeJSON(r, &request); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	role := &Role{
+		Name:       request.Name,
+		Privileges: request.Privileges,
+	}
+	if err := h.service.CreateRole(role); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusCreated, SanitizeRole(*role))
 }
 
 // @Summary Update a role
@@ -118,8 +189,29 @@ func (h *Handler) CreateRole(w http.ResponseWriter, r *http.Request) {
 // @Success 200
 // @Router /security/roles/{roleId} [put]
 func (h *Handler) UpdateRole(w http.ResponseWriter, r *http.Request) {
-	// Implementation needed
-	w.WriteHeader(http.StatusOK)
+	var request roleRequest
+	if err := httpx.DecodeJSON(r, &request); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	roleID, err := uuid.Parse(mux.Vars(r)["roleId"])
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid role id")
+		return
+	}
+
+	role := &Role{
+		ID:         roleID,
+		Name:       request.Name,
+		Privileges: request.Privileges,
+	}
+	if err := h.service.UpdateRole(role); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, SanitizeRole(*role))
 }
 
 // @Summary Delete a role
@@ -129,6 +221,50 @@ func (h *Handler) UpdateRole(w http.ResponseWriter, r *http.Request) {
 // @Success 200
 // @Router /security/roles/{roleId} [delete]
 func (h *Handler) DeleteRole(w http.ResponseWriter, r *http.Request) {
-	// Implementation needed
-	w.WriteHeader(http.StatusOK)
+	if err := h.service.DeleteRole(mux.Vars(r)["roleId"]); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+type createUserRequest struct {
+	Username string   `json:"username"`
+	Email    string   `json:"email"`
+	Password string   `json:"password"`
+	RoleIDs  []string `json:"roleIds"`
+}
+
+type updateUserRequest struct {
+	Email   string   `json:"email"`
+	RoleIDs []string `json:"roleIds"`
+}
+
+type changePasswordRequest struct {
+	Password string `json:"password"`
+}
+
+type roleRequest struct {
+	Name       string         `json:"name"`
+	Privileges datatypes.JSON `json:"privileges"`
+}
+
+func (r createUserRequest) toRoles() []Role {
+	return roleIDsToModels(r.RoleIDs)
+}
+
+func (r updateUserRequest) toRoles() []Role {
+	return roleIDsToModels(r.RoleIDs)
+}
+
+func roleIDsToModels(roleIDs []string) []Role {
+	roles := make([]Role, 0, len(roleIDs))
+	for _, rawID := range roleIDs {
+		id, err := uuid.Parse(rawID)
+		if err != nil {
+			continue
+		}
+		roles = append(roles, Role{ID: id})
+	}
+	return roles
 }

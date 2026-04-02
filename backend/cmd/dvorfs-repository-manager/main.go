@@ -29,10 +29,10 @@ func main() {
 	database.Migrate()
 
 	// Initialize services
-	authService := auth.NewService()
-	repoService := repository.NewService()
-	userService := user.NewService()
-	cleanupService := cleanup.NewService()
+	authService := auth.NewService(database.DB)
+	repoService := repository.NewService(database.DB)
+	userService := user.NewService(database.DB)
+	cleanupService := cleanup.NewService(database.DB)
 	blobService := repository.NewBlobService(database.DB)
 
 	// Initialize handlers

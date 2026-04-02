@@ -58,6 +58,11 @@ func (m *MockService) DeleteRole(roleID string) error {
 	return args.Error(0)
 }
 
+func (m *MockService) GetByUsername(username string) (*User, error) {
+	args := m.Called(username)
+	return args.Get(0).(*User), args.Error(1)
+}
+
 func TestGetAllUsers(t *testing.T) {
 	mockService := new(MockService)
 	handler := NewHandler(mockService)
@@ -71,6 +76,6 @@ func TestGetAllUsers(t *testing.T) {
 	handler.GetAllUsers(rr, req)
 
 	assert.Equal(t, http.StatusOK, rr.Code)
-	assert.JSONEq(t, `[{"ID":"00000000-0000-0000-0000-000000000000","Username":"testuser","PasswordHash":"","Email":"","CreatedAt":"0001-01-01T00:00:00Z","UpdatedAt":"0001-01-01T00:00:00Z","Roles":null}]`, rr.Body.String())
+	assert.JSONEq(t, `[{"id":"00000000-0000-0000-0000-000000000000","username":"testuser","email":"","createdAt":"0001-01-01T00:00:00Z","updatedAt":"0001-01-01T00:00:00Z","roles":[]}]`, rr.Body.String())
 	mockService.AssertExpectations(t)
 }

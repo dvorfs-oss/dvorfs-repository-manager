@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -38,9 +39,27 @@ func (m *MockService) DeleteRepository(name string) error {
 	return args.Error(0)
 }
 
-func (m *MockService) HandleArtifact(repoName, path string) error {
-	args := m.Called(repoName, path)
+func (m *MockService) UploadArtifact(repoName, artifactPath, contentType string, body io.Reader) (*Artifact, error) {
+	args := m.Called(repoName, artifactPath, contentType, body)
+	artifact, _ := args.Get(0).(*Artifact)
+	return artifact, args.Error(1)
+}
+
+func (m *MockService) OpenArtifact(repoName, artifactPath string) (io.ReadCloser, *Artifact, error) {
+	args := m.Called(repoName, artifactPath)
+	reader, _ := args.Get(0).(io.ReadCloser)
+	artifact, _ := args.Get(1).(*Artifact)
+	return reader, artifact, args.Error(2)
+}
+
+func (m *MockService) DeleteArtifact(repoName, artifactPath string) error {
+	args := m.Called(repoName, artifactPath)
 	return args.Error(0)
+}
+
+func (m *MockService) ListArtifacts(repoName string) ([]Artifact, error) {
+	args := m.Called(repoName)
+	return args.Get(0).([]Artifact), args.Error(1)
 }
 
 func (m *MockService) SearchArtifacts(query string) ([]Artifact, error) {

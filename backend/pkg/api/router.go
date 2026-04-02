@@ -7,6 +7,7 @@ import (
 	"dvorfs-repository-manager/internal/user"
 	"github.com/gorilla/mux"
 	httpSwagger "github.com/swaggo/http-swagger"
+	"net/http"
 )
 
 func NewRouter(
@@ -17,16 +18,24 @@ func NewRouter(
 	blobHandler *repository.BlobHandler,
 ) *mux.Router {
 	router := mux.NewRouter().StrictSlash(true)
+	router.UseEncodedPath()
+	router.Use(CORSMiddleware)
+	router.PathPrefix("/").Methods(http.MethodOptions).HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
 
 	// Authentication
 	authRouter := router.PathPrefix("/api/v1/auth").Subrouter()
 	authRouter.HandleFunc("/login", authHandler.Login).Methods("POST")
-	authRouter.HandleFunc("/logout", authHandler.Logout).Methods("POST")
-	authRouter.HandleFunc("/me", authHandler.GetMe).Methods("GET")
+	authRouter.Handle("/logout", authHandler.RequireAuth(http.HandlerFunc(authHandler.Logout))).Methods("POST")
+	authRouter.Handle("/me", authHandler.RequireAuth(http.HandlerFunc(authHandler.GetMe))).Methods("GET")
 
 	// Repositories
 	repoRouter := router.PathPrefix("/api/v1/repositories").Subrouter()
+	repoRouter.Use(authHandler.RequireAuth)
+	repoRouter.HandleFunc("", repoHandler.GetAllRepositories).Methods("GET")
 	repoRouter.HandleFunc("/", repoHandler.GetAllRepositories).Methods("GET")
+	repoRouter.HandleFunc("", repoHandler.CreateRepository).Methods("POST")
 	repoRouter.HandleFunc("/", repoHandler.CreateRepository).Methods("POST")
 	repoRouter.HandleFunc("/{name}", repoHandler.GetRepository).Methods("GET")
 	repoRouter.HandleFunc("/{name}", repoHandler.UpdateRepository).Methods("PUT")
@@ -34,14 +43,17 @@ func NewRouter(
 
 	// Artifacts
 	artifactRouter := router.PathPrefix("/repository").Subrouter()
+	artifactRouter.Use(authHandler.RequireAuth)
 	artifactRouter.PathPrefix("/{repository-name}").HandlerFunc(repoHandler.HandleArtifact)
 
 	// Search
 	searchRouter := router.PathPrefix("/api/v1/search").Subrouter()
+	searchRouter.Use(authHandler.RequireAuth)
 	searchRouter.HandleFunc("/artifacts", repoHandler.SearchArtifacts).Methods("GET")
 
 	// Security
 	securityRouter := router.PathPrefix("/api/v1/security").Subrouter()
+	securityRouter.Use(authHandler.RequireAuth)
 	securityRouter.HandleFunc("/users", userHandler.GetAllUsers).Methods("GET")
 	securityRouter.HandleFunc("/users", userHandler.CreateUser).Methods("POST")
 	securityRouter.HandleFunc("/users/{username}", userHandler.UpdateUser).Methods("PUT")
@@ -54,14 +66,20 @@ func NewRouter(
 
 	// Cleanup Policies
 	cleanupRouter := router.PathPrefix("/api/v1/cleanup-policies").Subrouter()
+	cleanupRouter.Use(authHandler.RequireAuth)
+	cleanupRouter.HandleFunc("", cleanupHandler.GetAllCleanupPolicies).Methods("GET")
 	cleanupRouter.HandleFunc("/", cleanupHandler.GetAllCleanupPolicies).Methods("GET")
+	cleanupRouter.HandleFunc("", cleanupHandler.CreateCleanupPolicy).Methods("POST")
 	cleanupRouter.HandleFunc("/", cleanupHandler.CreateCleanupPolicy).Methods("POST")
 	cleanupRouter.HandleFunc("/{policyId}", cleanupHandler.UpdateCleanupPolicy).Methods("PUT")
 	cleanupRouter.HandleFunc("/{policyId}", cleanupHandler.DeleteCleanupPolicy).Methods("DELETE")
 
 	// Blob Stores
 	blobStoreRouter := router.PathPrefix("/api/v1/blob-stores").Subrouter()
+	blobStoreRouter.Use(authHandler.RequireAuth)
+	blobStoreRouter.HandleFunc("", blobHandler.GetBlobStores).Methods("GET")
 	blobStoreRouter.HandleFunc("/", blobHandler.GetBlobStores).Methods("GET")
+	blobStoreRouter.HandleFunc("", blobHandler.CreateBlobStore).Methods("POST")
 	blobStoreRouter.HandleFunc("/", blobHandler.CreateBlobStore).Methods("POST")
 	blobStoreRouter.HandleFunc("/{id}", blobHandler.GetBlobStore).Methods("GET")
 	blobStoreRouter.HandleFunc("/{id}", blobHandler.UpdateBlobStore).Methods("PUT")

@@ -1,12 +1,11 @@
 package auth
 
 import (
-	"encoding/json"
-	"errors"
 	"net/http"
 	"strings"
 
-	_ "dvorfs-repository-manager/internal/user"
+	"dvorfs-repository-manager/internal/user"
+	"dvorfs-repository-manager/pkg/httpx"
 )
 
 type Handler struct {
@@ -26,22 +25,28 @@ func NewHandler(service Service) *Handler {
 // @Success 200 {object} map[string]string
 // @Router /auth/login [post]
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
-	var req LoginRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid credentials payload", http.StatusBadRequest)
+	var request LoginRequest
+	if err := httpx.DecodeJSON(r, &request); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	token, err := h.service.Login(req.Username, req.Password)
+
+	token, err := h.service.Login(request.Username, request.Password)
 	if err != nil {
-		if errors.Is(err, ErrInvalidCredentials) {
-			http.Error(w, err.Error(), http.StatusUnauthorized)
-			return
-		}
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httpx.WriteError(w, http.StatusUnauthorized, err.Error())
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"token": token})
+
+	account, err := h.service.GetMe(token)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
+		"token": token,
+		"user":  user.SanitizeUser(*account),
+	})
 }
 
 // @Summary Logout a user
@@ -50,17 +55,11 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 // @Success 200
 // @Router /auth/logout [post]
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
-	token := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
-	err := h.service.Logout(token)
-	if err != nil {
-		if errors.Is(err, ErrInvalidToken) {
-			http.Error(w, err.Error(), http.StatusUnauthorized)
-			return
-		}
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if err := h.service.Logout(extractBearerToken(r.Header.Get("Authorization"))); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	w.WriteHeader(http.StatusOK)
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "logged out"})
 }
 
 // @Summary Get current user
@@ -70,18 +69,21 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 // @Success 200 {object} user.User
 // @Router /auth/me [get]
 func (h *Handler) GetMe(w http.ResponseWriter, r *http.Request) {
-	token := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
-	user, err := h.service.GetMe(token)
-	if err != nil {
-		if errors.Is(err, ErrInvalidToken) {
-			http.Error(w, err.Error(), http.StatusUnauthorized)
-			return
-		}
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if account, ok := h.service.CurrentUser(r); ok {
+		httpx.WriteJSON(w, http.StatusOK, user.SanitizeUser(*account))
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(user)
+
+	account, err := h.service.GetMe(extractBearerToken(r.Header.Get("Authorization")))
+	if err != nil {
+		httpx.WriteError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, user.SanitizeUser(*account))
+}
+
+func (h *Handler) RequireAuth(next http.Handler) http.Handler {
+	return h.service.Middleware(next)
 }
 
 type LoginRequest struct {

@@ -1,11 +1,10 @@
 package cleanup
 
 import (
-	"dvorfs-repository-manager/internal/repository"
-	"encoding/json"
-	"errors"
 	"net/http"
 
+	"dvorfs-repository-manager/internal/repository"
+	"dvorfs-repository-manager/pkg/httpx"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 )
@@ -27,11 +26,10 @@ func NewHandler(service Service) *Handler {
 func (h *Handler) GetAllCleanupPolicies(w http.ResponseWriter, r *http.Request) {
 	policies, err := h.service.GetAllCleanupPolicies()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(policies)
+	httpx.WriteJSON(w, http.StatusOK, policies)
 }
 
 // @Summary Create a new cleanup policy
@@ -44,17 +42,15 @@ func (h *Handler) GetAllCleanupPolicies(w http.ResponseWriter, r *http.Request) 
 // @Router /cleanup-policies [post]
 func (h *Handler) CreateCleanupPolicy(w http.ResponseWriter, r *http.Request) {
 	var policy repository.CleanupPolicy
-	if err := json.NewDecoder(r.Body).Decode(&policy); err != nil {
-		http.Error(w, "invalid cleanup policy payload", http.StatusBadRequest)
+	if err := httpx.DecodeJSON(r, &policy); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if err := h.service.CreateCleanupPolicy(&policy); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(policy)
+	httpx.WriteJSON(w, http.StatusCreated, policy)
 }
 
 // @Summary Update a cleanup policy
@@ -67,27 +63,24 @@ func (h *Handler) CreateCleanupPolicy(w http.ResponseWriter, r *http.Request) {
 // @Success 200
 // @Router /cleanup-policies/{policyId} [put]
 func (h *Handler) UpdateCleanupPolicy(w http.ResponseWriter, r *http.Request) {
-	policyID := mux.Vars(r)["policyId"]
-	parsedID, err := uuid.Parse(policyID)
-	if err != nil {
-		http.Error(w, "invalid policy id", http.StatusBadRequest)
-		return
-	}
 	var policy repository.CleanupPolicy
-	if err := json.NewDecoder(r.Body).Decode(&policy); err != nil {
-		http.Error(w, "invalid cleanup policy payload", http.StatusBadRequest)
+	if err := httpx.DecodeJSON(r, &policy); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	policy.ID = parsedID
+
+	policyID, err := uuid.Parse(mux.Vars(r)["policyId"])
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "invalid policy id")
+		return
+	}
+
+	policy.ID = policyID
 	if err := h.service.UpdateCleanupPolicy(&policy); err != nil {
-		if errors.Is(err, ErrCleanupPolicyNotFound) {
-			http.Error(w, err.Error(), http.StatusNotFound)
-			return
-		}
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	w.WriteHeader(http.StatusOK)
+	httpx.WriteJSON(w, http.StatusOK, policy)
 }
 
 // @Summary Delete a cleanup policy
@@ -97,14 +90,9 @@ func (h *Handler) UpdateCleanupPolicy(w http.ResponseWriter, r *http.Request) {
 // @Success 200
 // @Router /cleanup-policies/{policyId} [delete]
 func (h *Handler) DeleteCleanupPolicy(w http.ResponseWriter, r *http.Request) {
-	policyID := mux.Vars(r)["policyId"]
-	if err := h.service.DeleteCleanupPolicy(policyID); err != nil {
-		if errors.Is(err, ErrCleanupPolicyNotFound) {
-			http.Error(w, err.Error(), http.StatusNotFound)
-			return
-		}
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if err := h.service.DeleteCleanupPolicy(mux.Vars(r)["policyId"]); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	w.WriteHeader(http.StatusOK)
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }

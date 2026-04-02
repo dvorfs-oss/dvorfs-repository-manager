@@ -1,9 +1,10 @@
 package cleanup
 
 import (
-	"dvorfs-repository-manager/internal/repository"
 	"errors"
+	"strings"
 
+	"dvorfs-repository-manager/internal/repository"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -27,13 +28,18 @@ var ErrCleanupPolicyNotFound = errors.New("cleanup policy not found")
 
 func (s *service) GetAllCleanupPolicies() ([]repository.CleanupPolicy, error) {
 	var policies []repository.CleanupPolicy
-	if err := s.db.Order("created_at desc").Find(&policies).Error; err != nil {
-		return nil, err
-	}
-	return policies, nil
+	err := s.db.Order("name asc").Find(&policies).Error
+	return policies, err
 }
 
 func (s *service) CreateCleanupPolicy(policy *repository.CleanupPolicy) error {
+	if policy == nil {
+		return errors.New("policy is required")
+	}
+	policy.Name = strings.TrimSpace(policy.Name)
+	if policy.Name == "" {
+		return errors.New("policy name is required")
+	}
 	if policy.ID == uuid.Nil {
 		policy.ID = uuid.New()
 	}
@@ -41,26 +47,24 @@ func (s *service) CreateCleanupPolicy(policy *repository.CleanupPolicy) error {
 }
 
 func (s *service) UpdateCleanupPolicy(policy *repository.CleanupPolicy) error {
-	result := s.db.Model(&repository.CleanupPolicy{}).Where("id = ?", policy.ID).Updates(map[string]any{
-		"name":     policy.Name,
-		"criteria": policy.Criteria,
-	})
-	if result.Error != nil {
-		return result.Error
+	if policy == nil || policy.ID == uuid.Nil {
+		return errors.New("policy id is required")
 	}
-	if result.RowsAffected == 0 {
-		return ErrCleanupPolicyNotFound
+
+	var existing repository.CleanupPolicy
+	if err := s.db.First(&existing, "id = ?", policy.ID).Error; err != nil {
+		return err
 	}
-	return nil
+
+	existing.Name = strings.TrimSpace(policy.Name)
+	existing.Criteria = policy.Criteria
+	return s.db.Save(&existing).Error
 }
 
 func (s *service) DeleteCleanupPolicy(policyID string) error {
-	result := s.db.Where("id = ?", policyID).Delete(&repository.CleanupPolicy{})
-	if result.Error != nil {
-		return result.Error
+	id, err := uuid.Parse(strings.TrimSpace(policyID))
+	if err != nil {
+		return err
 	}
-	if result.RowsAffected == 0 {
-		return ErrCleanupPolicyNotFound
-	}
-	return nil
+	return s.db.Delete(&repository.CleanupPolicy{}, "id = ?", id).Error
 }

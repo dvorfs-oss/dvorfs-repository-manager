@@ -19,6 +19,7 @@ type Service interface {
 	CreateRole(role *Role) error
 	UpdateRole(role *Role) error
 	DeleteRole(roleID string) error
+	GetByUsername(username string) (*User, error)
 }
 
 type service struct {

@@ -15,7 +15,10 @@ type Service interface {
 	GetRepository(name string) (*Repository, error)
 	UpdateRepository(repo *Repository) error
 	DeleteRepository(name string) error
-	HandleArtifact(repoName, path string) error
+	UploadArtifact(repoName, artifactPath, contentType string, body io.Reader) (*Artifact, error)
+	OpenArtifact(repoName, artifactPath string) (io.ReadCloser, *Artifact, error)
+	DeleteArtifact(repoName, artifactPath string) error
+	ListArtifacts(repoName string) ([]Artifact, error)
 	SearchArtifacts(query string) ([]Artifact, error)
 }
 

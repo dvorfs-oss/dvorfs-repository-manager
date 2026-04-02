@@ -6,7 +6,8 @@ import (
 	"net/http"
 	"strings"
 
-	_ "dvorfs-repository-manager/internal/user"
+	"dvorfs-repository-manager/internal/user"
+	"dvorfs-repository-manager/pkg/httpx"
 )
 
 type Handler struct {
@@ -60,7 +61,7 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	w.WriteHeader(http.StatusOK)
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"status": "logged out"})
 }
 
 // @Summary Get current user

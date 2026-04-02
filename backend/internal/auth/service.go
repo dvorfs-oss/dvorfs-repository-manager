@@ -16,10 +16,16 @@ import (
 	"gorm.io/gorm"
 )
 
+type contextKey string
+
+const userContextKey contextKey = "current-user"
+
 type Service interface {
 	Login(username, password string) (string, error)
 	Logout(token string) error
 	GetMe(token string) (*user.User, error)
+	Middleware(next http.Handler) http.Handler
+	CurrentUser(r *http.Request) (*user.User, bool)
 }
 
 type service struct {

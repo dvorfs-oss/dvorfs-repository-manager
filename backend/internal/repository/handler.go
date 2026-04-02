@@ -134,13 +134,14 @@ func (h *Handler) DeleteRepository(w http.ResponseWriter, r *http.Request) {
 }
 
 // @Summary Handle artifact
-// @Description Upload or download an artifact
+// @Description Upload, download, or delete an artifact
 // @Tags artifacts
 // @Param   repository-name path string true "Repository name"
 // @Param   path path string true "Artifact path"
 // @Success 200
 // @Router /repository/{repository-name}/{path} [put]
 // @Router /repository/{repository-name}/{path} [get]
+// @Router /repository/{repository-name}/{path} [delete]
 func (h *Handler) HandleArtifact(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	repoName := vars["repository-name"]
@@ -175,4 +176,41 @@ func (h *Handler) SearchArtifacts(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(artifacts)
+}
+
+func artifactRouteParts(r *http.Request) (string, string, error) {
+	repoName := mux.Vars(r)["repository-name"]
+	if repoName == "" {
+		return "", "", ErrInvalidRepositoryName
+	}
+
+	prefix := "/repository/" + repoName + "/"
+	if !strings.HasPrefix(r.URL.Path, prefix) {
+		return "", "", ErrInvalidArtifactPath
+	}
+
+	artifactPath := strings.TrimPrefix(r.URL.Path, prefix)
+	if artifactPath == "" {
+		return "", "", ErrInvalidArtifactPath
+	}
+
+	return repoName, artifactPath, nil
+}
+
+func writeRepositoryError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, ErrRepositoryNotFound), errors.Is(err, ErrArtifactNotFound):
+		http.Error(w, err.Error(), http.StatusNotFound)
+	case errors.Is(err, ErrInvalidRepositoryName), errors.Is(err, ErrInvalidArtifactPath), errors.Is(err, ErrUnsupportedRepositoryType):
+		http.Error(w, err.Error(), http.StatusBadRequest)
+	default:
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func pathBase(p string) string {
+	if idx := strings.LastIndexAny(p, `/\`); idx >= 0 {
+		return p[idx+1:]
+	}
+	return p
 }

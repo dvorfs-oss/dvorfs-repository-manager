@@ -27,7 +27,7 @@ func NewHandler(service Service) *Handler {
 func (h *Handler) GetAllCleanupPolicies(w http.ResponseWriter, r *http.Request) {
 	policies, err := h.service.GetAllCleanupPolicies()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		httpx.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

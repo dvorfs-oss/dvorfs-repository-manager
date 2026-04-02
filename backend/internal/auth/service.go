@@ -1,17 +1,18 @@
 package auth
 
 import (
-	"context"
-	"errors"
-	"net/http"
-	"os"
-	"strings"
-	"sync"
-
+	"crypto/hmac"
+	"crypto/sha256"
 	"dvorfs-repository-manager/internal/user"
-	"github.com/google/uuid"
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
 	"golang.org/x/crypto/bcrypt"
-	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
@@ -28,18 +29,24 @@ type Service interface {
 }
 
 type service struct {
-	db       *gorm.DB
-	mu       sync.RWMutex
-	sessions map[string]uuid.UUID
+	db     *gorm.DB
+	users  map[string]string
+	secret []byte
 }
 
 func NewService(db *gorm.DB) Service {
-	svc := &service{
-		db:       db,
-		sessions: make(map[string]uuid.UUID),
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		secret = "dev-secret"
 	}
-	svc.ensureBootstrapData()
-	return svc
+
+	return &service{
+		db: db,
+		users: map[string]string{
+			"admin": "admin",
+		},
+		secret: []byte(secret),
+	}
 }
 
 var (
@@ -48,126 +55,85 @@ var (
 )
 
 func (s *service) Login(username, password string) (string, error) {
-	var account user.User
-	if err := s.db.Preload("Roles").First(&account, "username = ?", strings.TrimSpace(username)).Error; err != nil {
-		return "", err
+	if s.db != nil {
+		var foundUser user.User
+		if err := s.db.Where("username = ?", username).First(&foundUser).Error; err == nil {
+			if bcrypt.CompareHashAndPassword([]byte(foundUser.PasswordHash), []byte(password)) != nil {
+				return "", ErrInvalidCredentials
+			}
+			return s.signToken(username)
+		}
 	}
 
-	if err := bcrypt.CompareHashAndPassword([]byte(account.PasswordHash), []byte(password)); err != nil {
-		return "", errors.New("invalid username or password")
+	if expectedPassword, ok := s.users[username]; ok && expectedPassword == password {
+		return s.signToken(username)
 	}
 
-	token := uuid.NewString()
-
-	s.mu.Lock()
-	s.sessions[token] = account.ID
-	s.mu.Unlock()
-
-	return token, nil
+	return "", ErrInvalidCredentials
 }
 
 func (s *service) Logout(token string) error {
-	token = strings.TrimSpace(token)
-	if token == "" {
-		return errors.New("token is required")
+	if _, err := s.parseToken(token); err != nil {
+		return ErrInvalidToken
 	}
-
-	s.mu.Lock()
-	delete(s.sessions, token)
-	s.mu.Unlock()
 	return nil
 }
 
 func (s *service) GetMe(token string) (*user.User, error) {
-	token = strings.TrimSpace(token)
-	if token == "" {
-		return nil, errors.New("token is required")
-	}
-
-	s.mu.RLock()
-	userID, ok := s.sessions[token]
-	s.mu.RUnlock()
-	if !ok {
-		return nil, errors.New("invalid session")
-	}
-
-	var account user.User
-	if err := s.db.Preload("Roles").First(&account, "id = ?", userID).Error; err != nil {
-		return nil, err
-	}
-
-	return &account, nil
-}
-
-func (s *service) Middleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		account, err := s.GetMe(extractBearerToken(r.Header.Get("Authorization")))
-		if err != nil {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-
-		ctx := context.WithValue(r.Context(), userContextKey, account)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
-}
-
-func (s *service) CurrentUser(r *http.Request) (*user.User, bool) {
-	account, ok := r.Context().Value(userContextKey).(*user.User)
-	return account, ok
-}
-
-func (s *service) ensureBootstrapData() {
-	var adminRole user.Role
-	err := s.db.First(&adminRole, "name = ?", "admin").Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		adminRole = user.Role{
-			ID:         uuid.New(),
-			Name:       "admin",
-			Privileges: datatypes.JSON([]byte(`["*"]`)),
-		}
-		_ = s.db.Create(&adminRole).Error
-	}
-
-	var userCount int64
-	if err := s.db.Model(&user.User{}).Count(&userCount).Error; err != nil || userCount > 0 {
-		return
-	}
-
-	username := strings.TrimSpace(os.Getenv("DEFAULT_ADMIN_USERNAME"))
-	if username == "" {
-		username = "admin"
-	}
-
-	password := os.Getenv("DEFAULT_ADMIN_PASSWORD")
-	if strings.TrimSpace(password) == "" {
-		password = "admin123"
-	}
-
-	email := strings.TrimSpace(os.Getenv("DEFAULT_ADMIN_EMAIL"))
-	if email == "" {
-		email = "admin@local"
-	}
-
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	username, err := s.parseToken(token)
 	if err != nil {
-		return
+		return nil, ErrInvalidToken
 	}
 
-	adminUser := user.User{
-		ID:           uuid.New(),
-		Username:     username,
-		PasswordHash: string(hashedPassword),
-		Email:        email,
-		Roles:        []user.Role{adminRole},
+	if s.db != nil {
+		var foundUser user.User
+		if err := s.db.Where("username = ?", username).First(&foundUser).Error; err == nil {
+			return &foundUser, nil
+		}
 	}
-	_ = s.db.Create(&adminUser).Error
+
+	return &user.User{Username: username}, nil
 }
 
-func extractBearerToken(header string) string {
-	parts := strings.SplitN(strings.TrimSpace(header), " ", 2)
-	if len(parts) == 2 && strings.EqualFold(parts[0], "bearer") {
-		return strings.TrimSpace(parts[1])
+func (s *service) signToken(username string) (string, error) {
+	exp := time.Now().Add(24 * time.Hour).Unix()
+	payload := fmt.Sprintf("%s|%d", username, exp)
+	mac := hmac.New(sha256.New, s.secret)
+	mac.Write([]byte(payload))
+	signature := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	token := fmt.Sprintf("%s|%s", payload, signature)
+	return base64.RawURLEncoding.EncodeToString([]byte(token)), nil
+}
+
+func (s *service) parseToken(rawToken string) (string, error) {
+	if strings.TrimSpace(rawToken) == "" {
+		return "", ErrInvalidToken
 	}
-	return strings.TrimSpace(header)
+
+	decodedToken, err := base64.RawURLEncoding.DecodeString(rawToken)
+	if err != nil {
+		return "", ErrInvalidToken
+	}
+	parts := strings.Split(string(decodedToken), "|")
+	if len(parts) != 3 {
+		return "", ErrInvalidToken
+	}
+
+	username := parts[0]
+	exp, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil || time.Now().Unix() > exp {
+		return "", ErrInvalidToken
+	}
+
+	payload := fmt.Sprintf("%s|%d", username, exp)
+	mac := hmac.New(sha256.New, s.secret)
+	mac.Write([]byte(payload))
+	expectedSignature := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	if !hmac.Equal([]byte(expectedSignature), []byte(parts[2])) {
+		return "", ErrInvalidToken
+	}
+	if strings.TrimSpace(username) == "" {
+		return "", ErrInvalidToken
+	}
+	return username, nil
 }

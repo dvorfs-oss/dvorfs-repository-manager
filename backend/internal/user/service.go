@@ -2,7 +2,7 @@ package user
 
 import (
 	"errors"
-	"strings"
+	"sync"
 
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
@@ -23,11 +23,18 @@ type Service interface {
 }
 
 type service struct {
-	db *gorm.DB
+	mu    sync.RWMutex
+	users map[string]User
+	roles map[string]Role
+	db    *gorm.DB
 }
 
 func NewService(db *gorm.DB) Service {
-	return &service{db: db}
+	return &service{
+		users: make(map[string]User),
+		roles: make(map[string]Role),
+		db:    db,
+	}
 }
 
 var (
@@ -36,177 +43,197 @@ var (
 )
 
 func (s *service) GetAllUsers() ([]User, error) {
-	var users []User
-	err := s.db.Preload("Roles").Order("username asc").Find(&users).Error
-	return users, err
+	if s.db != nil {
+		var users []User
+		if err := s.db.Preload("Roles").Find(&users).Error; err != nil {
+			return nil, err
+		}
+		return users, nil
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]User, 0, len(s.users))
+	for _, u := range s.users {
+		result = append(result, u)
+	}
+	return result, nil
 }
 
-func (s *service) CreateUser(model *User) error {
-	if model == nil {
-		return errors.New("user is required")
-	}
-
-	username := strings.TrimSpace(model.Username)
-	email := strings.TrimSpace(model.Email)
-	password := model.PasswordHash
-	if username == "" || email == "" || password == "" {
-		return errors.New("username, email and password are required")
-	}
-
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+func (s *service) CreateUser(user *User) error {
+	passwordHash, err := hashPassword(user.PasswordHash)
 	if err != nil {
 		return err
 	}
+	user.PasswordHash = passwordHash
 
-	roles, err := s.resolveRoles(model.Roles)
-	if err != nil {
-		return err
+	if s.db != nil {
+		user.ID = uuid.New()
+		return s.db.Create(user).Error
 	}
 
-	model.ID = uuid.New()
-	model.Username = username
-	model.Email = email
-	model.PasswordHash = string(hashedPassword)
-	model.Roles = roles
-
-	return s.db.Create(model).Error
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if user.ID == uuid.Nil {
+		user.ID = uuid.New()
+	}
+	s.users[user.Username] = *user
+	return nil
 }
 
-func (s *service) UpdateUser(model *User) error {
-	if model == nil {
-		return errors.New("user is required")
-	}
-
-	username := strings.TrimSpace(model.Username)
-	if username == "" {
-		return errors.New("username is required")
-	}
-
-	var existing User
-	if err := s.db.Preload("Roles").First(&existing, "username = ?", username).Error; err != nil {
-		return err
-	}
-
-	email := strings.TrimSpace(model.Email)
-	if email == "" {
-		return errors.New("email is required")
-	}
-
-	existing.Email = email
-	if model.Roles != nil {
-		roles, err := s.resolveRoles(model.Roles)
-		if err != nil {
+func (s *service) UpdateUser(user *User) error {
+	if s.db != nil {
+		var existing User
+		if err := s.db.Where("username = ?", user.Username).First(&existing).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrUserNotFound
+			}
 			return err
 		}
-		if err := s.db.Model(&existing).Association("Roles").Replace(roles); err != nil {
-			return err
-		}
-		existing.Roles = roles
+		user.ID = existing.ID
+		return s.db.Save(user).Error
 	}
 
-	return s.db.Save(&existing).Error
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.users[user.Username]; !exists {
+		return ErrUserNotFound
+	}
+	s.users[user.Username] = *user
+	return nil
 }
 
 func (s *service) ChangeUserPassword(username, newPassword string) error {
-	if strings.TrimSpace(newPassword) == "" {
-		return errors.New("password is required")
-	}
-
-	var existing User
-	if err := s.db.First(&existing, "username = ?", strings.TrimSpace(username)).Error; err != nil {
-		return err
-	}
-
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	passwordHash, err := hashPassword(newPassword)
 	if err != nil {
 		return err
 	}
 
-	return s.db.Model(&existing).Update("password_hash", string(hashedPassword)).Error
+	if s.db != nil {
+		result := s.db.Model(&User{}).Where("username = ?", username).Update("password_hash", passwordHash)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return ErrUserNotFound
+		}
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	currentUser, exists := s.users[username]
+	if !exists {
+		return ErrUserNotFound
+	}
+	currentUser.PasswordHash = passwordHash
+	s.users[username] = currentUser
+	return nil
 }
 
 func (s *service) DeleteUser(username string) error {
-	return s.db.Delete(&User{}, "username = ?", strings.TrimSpace(username)).Error
+	if s.db != nil {
+		result := s.db.Where("username = ?", username).Delete(&User{})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return ErrUserNotFound
+		}
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.users[username]; !exists {
+		return ErrUserNotFound
+	}
+	delete(s.users, username)
+	return nil
 }
 
 func (s *service) GetAllRoles() ([]Role, error) {
-	var roles []Role
-	err := s.db.Order("name asc").Find(&roles).Error
-	return roles, err
+	if s.db != nil {
+		var roles []Role
+		if err := s.db.Find(&roles).Error; err != nil {
+			return nil, err
+		}
+		return roles, nil
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]Role, 0, len(s.roles))
+	for _, role := range s.roles {
+		result = append(result, role)
+	}
+	return result, nil
 }
 
 func (s *service) CreateRole(role *Role) error {
-	if role == nil {
-		return errors.New("role is required")
+	if s.db != nil {
+		role.ID = uuid.New()
+		return s.db.Create(role).Error
 	}
 
-	role.Name = strings.TrimSpace(role.Name)
-	if role.Name == "" {
-		return errors.New("role name is required")
-	}
-
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if role.ID == uuid.Nil {
 		role.ID = uuid.New()
 	}
-
-	return s.db.Create(role).Error
+	s.roles[role.ID.String()] = *role
+	return nil
 }
 
 func (s *service) UpdateRole(role *Role) error {
-	if role == nil || role.ID == uuid.Nil {
-		return errors.New("role id is required")
+	if s.db != nil {
+		var existing Role
+		if err := s.db.First(&existing, "id = ?", role.ID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrRoleNotFound
+			}
+			return err
+		}
+		return s.db.Save(role).Error
 	}
 
-	var existing Role
-	if err := s.db.First(&existing, "id = ?", role.ID).Error; err != nil {
-		return err
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.roles[role.ID.String()]; !exists {
+		return ErrRoleNotFound
 	}
-
-	existing.Name = strings.TrimSpace(role.Name)
-	existing.Privileges = role.Privileges
-	return s.db.Save(&existing).Error
+	s.roles[role.ID.String()] = *role
+	return nil
 }
 
 func (s *service) DeleteRole(roleID string) error {
-	id, err := uuid.Parse(strings.TrimSpace(roleID))
-	if err != nil {
-		return err
-	}
-	return s.db.Delete(&Role{}, "id = ?", id).Error
-}
-
-func (s *service) GetByUsername(username string) (*User, error) {
-	var existing User
-	if err := s.db.Preload("Roles").First(&existing, "username = ?", strings.TrimSpace(username)).Error; err != nil {
-		return nil, err
-	}
-	return &existing, nil
-}
-
-func (s *service) resolveRoles(roles []Role) ([]Role, error) {
-	if len(roles) == 0 {
-		return nil, nil
-	}
-
-	ids := make([]uuid.UUID, 0, len(roles))
-	for _, role := range roles {
-		if role.ID != uuid.Nil {
-			ids = append(ids, role.ID)
+	if s.db != nil {
+		result := s.db.Delete(&Role{}, "id = ?", roleID)
+		if result.Error != nil {
+			return result.Error
 		}
+		if result.RowsAffected == 0 {
+			return ErrRoleNotFound
+		}
+		return nil
 	}
 
-	if len(ids) == 0 {
-		return nil, nil
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.roles[roleID]; !exists {
+		return ErrRoleNotFound
 	}
+	delete(s.roles, roleID)
+	return nil
+}
 
-	var resolved []Role
-	if err := s.db.Where("id IN ?", ids).Find(&resolved).Error; err != nil {
-		return nil, err
+func hashPassword(rawPassword string) (string, error) {
+	if rawPassword == "" {
+		return "", errors.New("password is required")
 	}
-
-	if len(resolved) != len(ids) {
-		return nil, errors.New("one or more roles were not found")
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(rawPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
 	}
-
-	return resolved, nil
+	return string(passwordHash), nil
 }

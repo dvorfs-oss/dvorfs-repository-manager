@@ -1,10 +1,10 @@
 package cleanup
 
 import (
-	"errors"
-	"strings"
-
 	"dvorfs-repository-manager/internal/repository"
+	"errors"
+	"sync"
+
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -17,54 +17,91 @@ type Service interface {
 }
 
 type service struct {
-	db *gorm.DB
+	mu       sync.RWMutex
+	policies map[string]repository.CleanupPolicy
+	db       *gorm.DB
 }
 
 func NewService(db *gorm.DB) Service {
-	return &service{db: db}
+	return &service{
+		policies: make(map[string]repository.CleanupPolicy),
+		db:       db,
+	}
 }
 
 var ErrCleanupPolicyNotFound = errors.New("cleanup policy not found")
 
 func (s *service) GetAllCleanupPolicies() ([]repository.CleanupPolicy, error) {
-	var policies []repository.CleanupPolicy
-	err := s.db.Order("name asc").Find(&policies).Error
-	return policies, err
+	if s.db != nil {
+		var policies []repository.CleanupPolicy
+		if err := s.db.Find(&policies).Error; err != nil {
+			return nil, err
+		}
+		return policies, nil
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]repository.CleanupPolicy, 0, len(s.policies))
+	for _, policy := range s.policies {
+		result = append(result, policy)
+	}
+	return result, nil
 }
 
 func (s *service) CreateCleanupPolicy(policy *repository.CleanupPolicy) error {
-	if policy == nil {
-		return errors.New("policy is required")
+	if s.db != nil {
+		policy.ID = uuid.New()
+		return s.db.Create(policy).Error
 	}
-	policy.Name = strings.TrimSpace(policy.Name)
-	if policy.Name == "" {
-		return errors.New("policy name is required")
-	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if policy.ID == uuid.Nil {
 		policy.ID = uuid.New()
 	}
-	return s.db.Create(policy).Error
+	s.policies[policy.ID.String()] = *policy
+	return nil
 }
 
 func (s *service) UpdateCleanupPolicy(policy *repository.CleanupPolicy) error {
-	if policy == nil || policy.ID == uuid.Nil {
-		return errors.New("policy id is required")
+	if s.db != nil {
+		var existing repository.CleanupPolicy
+		if err := s.db.First(&existing, "id = ?", policy.ID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrCleanupPolicyNotFound
+			}
+			return err
+		}
+		return s.db.Save(policy).Error
 	}
 
-	var existing repository.CleanupPolicy
-	if err := s.db.First(&existing, "id = ?", policy.ID).Error; err != nil {
-		return err
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.policies[policy.ID.String()]; !exists {
+		return ErrCleanupPolicyNotFound
 	}
-
-	existing.Name = strings.TrimSpace(policy.Name)
-	existing.Criteria = policy.Criteria
-	return s.db.Save(&existing).Error
+	s.policies[policy.ID.String()] = *policy
+	return nil
 }
 
 func (s *service) DeleteCleanupPolicy(policyID string) error {
-	id, err := uuid.Parse(strings.TrimSpace(policyID))
-	if err != nil {
-		return err
+	if s.db != nil {
+		result := s.db.Delete(&repository.CleanupPolicy{}, "id = ?", policyID)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return ErrCleanupPolicyNotFound
+		}
+		return nil
 	}
-	return s.db.Delete(&repository.CleanupPolicy{}, "id = ?", id).Error
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.policies[policyID]; !exists {
+		return ErrCleanupPolicyNotFound
+	}
+	delete(s.policies, policyID)
+	return nil
 }

@@ -3,8 +3,6 @@ package repository
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
 	"net/http"
 	"strings"
 
@@ -46,14 +44,21 @@ func (h *Handler) GetAllRepositories(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) CreateRepository(w http.ResponseWriter, r *http.Request) {
 	var repo Repository
 	if err := json.NewDecoder(r.Body).Decode(&repo); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "invalid repository payload", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(repo.Name) == "" {
+		http.Error(w, "repository name is required", http.StatusBadRequest)
 		return
 	}
 	if err := h.service.CreateRepository(&repo); err != nil {
-		writeRepositoryError(w, err)
+		if errors.Is(err, ErrRepositoryExists) {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(repo)
@@ -70,10 +75,13 @@ func (h *Handler) GetRepository(w http.ResponseWriter, r *http.Request) {
 	name := mux.Vars(r)["name"]
 	repo, err := h.service.GetRepository(name)
 	if err != nil {
-		writeRepositoryError(w, err)
+		if errors.Is(err, ErrRepositoryNotFound) {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(repo)
 }
@@ -91,24 +99,19 @@ func (h *Handler) UpdateRepository(w http.ResponseWriter, r *http.Request) {
 	name := mux.Vars(r)["name"]
 	var repo Repository
 	if err := json.NewDecoder(r.Body).Decode(&repo); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "invalid repository payload", http.StatusBadRequest)
 		return
 	}
 	repo.Name = name
-
 	if err := h.service.UpdateRepository(&repo); err != nil {
-		writeRepositoryError(w, err)
+		if errors.Is(err, ErrRepositoryNotFound) {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	updated, err := h.service.GetRepository(name)
-	if err != nil {
-		writeRepositoryError(w, err)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(updated)
+	w.WriteHeader(http.StatusOK)
 }
 
 // @Summary Delete a repository
@@ -120,10 +123,14 @@ func (h *Handler) UpdateRepository(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DeleteRepository(w http.ResponseWriter, r *http.Request) {
 	name := mux.Vars(r)["name"]
 	if err := h.service.DeleteRepository(name); err != nil {
-		writeRepositoryError(w, err)
+		if errors.Is(err, ErrRepositoryNotFound) {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	w.WriteHeader(http.StatusOK)
 }
 
 // @Summary Handle artifact
@@ -136,54 +143,22 @@ func (h *Handler) DeleteRepository(w http.ResponseWriter, r *http.Request) {
 // @Router /repository/{repository-name}/{path} [get]
 // @Router /repository/{repository-name}/{path} [delete]
 func (h *Handler) HandleArtifact(w http.ResponseWriter, r *http.Request) {
-	repoName, artifactPath, err := artifactRouteParts(r)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	vars := mux.Vars(r)
+	repoName := vars["repository-name"]
+	pathPrefix := "/repository/" + repoName + "/"
+	artifactPath := strings.TrimPrefix(r.URL.Path, pathPrefix)
+	if err := h.service.HandleArtifact(repoName, artifactPath); err != nil {
+		switch {
+		case errors.Is(err, ErrRepositoryNotFound):
+			http.Error(w, err.Error(), http.StatusNotFound)
+		case errors.Is(err, ErrArtifactPathEmpty):
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		default:
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 		return
 	}
-
-	switch r.Method {
-	case http.MethodPut, http.MethodPost:
-		artifact, err := h.service.UploadArtifact(repoName, artifactPath, r.Header.Get("Content-Type"), r.Body)
-		if err != nil {
-			writeRepositoryError(w, err)
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(artifact)
-	case http.MethodGet:
-		file, artifact, err := h.service.OpenArtifact(repoName, artifactPath)
-		if err != nil {
-			writeRepositoryError(w, err)
-			return
-		}
-		defer file.Close()
-
-		contentType := strings.TrimSpace(artifact.ContentType)
-		if contentType == "" {
-			contentType = http.DetectContentType(nil)
-			if contentType == "" {
-				contentType = "application/octet-stream"
-			}
-		}
-
-		w.Header().Set("Content-Type", contentType)
-		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, pathBase(artifactPath)))
-		if _, err := io.Copy(w, file); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-	case http.MethodDelete:
-		if err := h.service.DeleteArtifact(repoName, artifactPath); err != nil {
-			writeRepositoryError(w, err)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-	}
+	w.WriteHeader(http.StatusAccepted)
 }
 
 // @Summary Search artifacts
